@@ -1,0 +1,12 @@
+{
+  "additionalFiles": "..,..,..,..,..,..,..",
+  "builtInLibrariesFolders": "/home/asim/Downloads/arduino-1.8.15/libraries",
+  "builtInToolsFolders": "/home/asim/Downloads/arduino-1.8.15/tools-builder,/home/asim/Downloads/arduino-1.8.15/hardware/tools/avr,/home/asim/.arduino15/packages",
+  "compiler.optimization_flags": "",
+  "customBuildProperties": "build.path=/home/asim/mobile/ArduinoOutput,build.warn_data_percentage=75,runtime.tools.xtensa-esp32-elf-gcc.path=/home/asim/.arduino15/packages/esp32/tools/xtensa-esp32-elf-gcc/gcc8_4_0-esp-2021r2,runtime.tools.xtensa-esp32-elf-gcc-gcc8_4_0-esp-2021r2.path=/home/asim/.arduino15/packages/esp32/tools/xtensa-esp32-elf-gcc/gcc8_4_0-esp-2021r2,runtime.tools.mklittlefs.path=/home/asim/.arduino15/packages/esp32/tools/mklittlefs/3.0.0-gnu12-dc7f933,runtime.tools.mklittlefs-3.0.0-gnu12-dc7f933.path=/home/asim/.arduino15/packages/esp32/tools/mklittlefs/3.0.0-gnu12-dc7f933,runtime.tools.mkspiffs.path=/home/asim/.arduino15/packages/esp32/tools/mkspiffs/0.2.3,runtime.tools.mkspiffs-0.2.3.path=/home/asim/.arduino15/packages/esp32/tools/mkspiffs/0.2.3,runtime.tools.xtensa-esp32s2-elf-gcc.path=/home/asim/.arduino15/packages/esp32/tools/xtensa-esp32s2-elf-gcc/gcc8_4_0-esp-2021r2,runtime.tools.xtensa-esp32s2-elf-gcc-gcc8_4_0-esp-2021r2.path=/home/asim/.arduino15/packages/esp32/tools/xtensa-esp32s2-elf-gcc/gcc8_4_0-esp-2021r2,runtime.tools.esptool_py.path=/home/asim/.arduino15/packages/esp32/tools/esptool_py/3.1.0,runtime.tools.esptool_py-3.1.0.path=/home/asim/.arduino15/packages/esp32/tools/esptool_py/3.1.0,runtime.tools.riscv32-esp-elf-gcc.path=/home/asim/.arduino15/packages/esp32/tools/riscv32-esp-elf-gcc/gcc8_4_0-esp-2021r2,runtime.tools.riscv32-esp-elf-gcc-gcc8_4_0-esp-2021r2.path=/home/asim/.arduino15/packages/esp32/tools/riscv32-esp-elf-gcc/gcc8_4_0-esp-2021r2",
+  "fqbn": "esp32:esp32:esp32:PSRAM=disabled,PartitionScheme=default,CPUFreq=240,FlashMode=qio,FlashFreq=80,FlashSize=4M,UploadSpeed=921600,LoopCore=1,EventsCore=1,DebugLevel=none",
+  "hardwareFolders": "/home/asim/Downloads/arduino-1.8.15/hardware,/home/asim/.arduino15/packages",
+  "otherLibrariesFolders": "/home/asim/Arduino/libraries",
+  "runtime.ide.version": "10815",
+  "sketchLocation": "/home/asim/mobile/main/main.ino"
+}
