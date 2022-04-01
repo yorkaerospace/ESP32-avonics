@@ -1,17 +1,18 @@
+#include <LoRa.h>
+
+#include <TinyGPS++.h>
+
 #include <SPI.h>
 
 #include <RF24.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-
-#include "BMI088.h"
+#include <BMI088.h>
 #include <BMP388_DEV.h>
-#include "TinyGPS++.h"
 
 #include "IOSdcard.h"
 
-static const unsigned char PROGMEM bitmap[]
-{
+static const unsigned char PROGMEM bitmap[]{
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFB, 0x79, 0xEF, 0xBB, 0xCF, 0x37, 0xDF, 0xBB, 0xED, 0x9F, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0x7F, 0xBF, 0xEF, 0xA5, 0xFF, 0xCF, 0x77, 0xDF, 0x7B, 0xA9, 0xFF, 0xF7, 0xFF,
@@ -43,8 +44,7 @@ static const unsigned char PROGMEM bitmap[]
     0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFD, 0xEF, 0xF9, 0xF7, 0xD5, 0xDB, 0xFE, 0xC5, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xCF, 0xF2, 0xDF, 0xF9, 0xF5, 0xDF, 0xF3, 0xDE, 0xEF, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFA, 0xF7, 0xE5, 0xFF, 0x9A, 0xDA, 0xFF, 0xE5, 0xF7, 0xFF, 0xBF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
-};
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // PINS
 #define SDCARDCS 33
@@ -79,34 +79,44 @@ File gpsFile;
 // Hold Pressure data
 struct PressureStuct
 {
-    float pressure;
-    float temperature;
-    float altitude;
-    unsigned long time;
+  float pressure;
+  float temperature;
+  float altitude;
+  unsigned long time;
 };
 
 struct GPSStruct
 {
-    double lat, lng;
-    uint32_t date;
-    uint32_t time;
-    double speed;
-    double course;
-    double altitude;
-    int satellites;
-    int hdop;
-    unsigned long systemTime;
+  double lat, lng;
+  uint32_t date;
+  uint32_t time;
+  double speed;
+  double course;
+  double altitude;
+  int satellites;
+  int hdop;
+  unsigned long systemTime;
 };
 
 struct AccelerationAndGyroStruct
 {
-    float ax;
-    float ay;
-    float az;
-    float gx;
-    float gy;
-    float gz;
-    unsigned long time;
+  float ax;
+  float ay;
+  float az;
+  float gx;
+  float gy;
+  float gz;
+  unsigned long time;
+};
+
+struct Packet
+{
+  uint32_t seq_no;
+  uint32_t time_ms;
+  double gps_lat, gps_lng, gps_alt;
+  float bmp_alt, bmp_temp;
+  float acc_x, acc_y, acc_z;
+  float gyr_x, gyr_y, gyr_z;
 };
 
 QueueHandle_t AccelQueue = xQueueCreate(BUFFERSIZE, sizeof(AccelerationAndGyroStruct));
@@ -128,320 +138,332 @@ RF24 radio(26, 15);
 
 void Radio(void *pvParameters)
 {
-    // HSPI is the hardware SPI port for the radio
-    hspi = new SPIClass(HSPI);
-    hspi->begin();
+  // HSPI is the hardware SPI port for the radio
+  hspi = new SPIClass(HSPI);
+  hspi->begin();
 
-    // ADDRESS
+  // ADDRESS
+  // NSS 26
+  // reset -1
+  // DI0 16
 
-    uint8_t address[][6] = {"1Node", "2Node"};
+  LoRa.setSPI(*hspi);
+  LoRa.setPins(26, -1, 16);
+  while (!LoRa.begin(868E6))
+  {
+    Serial.println(".");
+    delay(500);
+  }
+  PressureStuct pressure = {};
+  AccelerationAndGyroStruct accelAndGyro = {};
+  GPSStruct gps = {};
+  Packet packet = {};
+  int radio_counter = 0;
+  uint8_t buffer[sizeof(Packet)] = {};
+  while (1)
+  {
 
-    bool radioNumber = 1; // 0 uses address[0] to transmit, 1 uses address[1] to transmit
-
-    float payload = 0.0;
-
-    if (!radio.begin(hspi))
+    if (uxQueueMessagesWaiting(RadioPressureQueue) > 0)
     {
-        Serial.println(F("radio hardware not responding!!"));
-
-        while (1)
-        {
-        } // hold program in infinite loop to prevent subsequent errors
+      xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
     }
-    else
-        Serial.println(F("radio hardware OK"));
-
-    radio.setPALevel(RF24_PA_LOW);
-
-    // radio.setPayloadSize(sizeof(payload)); // float datatype occupies 4 bytes
-
-    // set the TX address of the RX node into the TX pipe
-    radio.openWritingPipe(address[radioNumber]); // always uses pipe 0
-
-    // set the RX address of the TX node into a RX pipe
-    radio.openReadingPipe(1, address[!radioNumber]); // using pipe 1
-
-    radio.stopListening(); // put radio in TX mode
-
-    while (1)
+    if (uxQueueMessagesWaiting(RadioAccelQueue) > 0)
     {
-        unsigned long start_timer = micros();               // start the timer
-        bool report = radio.write(&payload, sizeof(float)); // transmit & save the report
-        unsigned long end_timer = micros();                 // end the timer
-
-        if (report)
-        {
-            Serial.print(F("Transmission successful! ")); // payload was delivered
-            Serial.print(F("Time to transmit = "));
-            Serial.print(end_timer - start_timer); // print the timer result
-            Serial.print(F(" us. Sent: "));
-            Serial.println(payload); // print payload sent
-            payload += 0.01;         // increment float payload
-        }
-        else
-        {
-            Serial.println(F("Transmission failed or timed out")); // payload was not delivered
-        }
-
-        delay(1000);
+      xQueueReceive(RadioAccelQueue, &accelAndGyro, portMAX_DELAY);
     }
+    if (uxQueueMessagesWaiting(RadioGPSQueue) > 0)
+    {
+      xQueueReceive(RadioGPSQueue, &gps, portMAX_DELAY);
+    }
+
+    packet.acc_x = accelAndGyro.ax;
+    packet.acc_y = accelAndGyro.ay;
+    packet.acc_z = accelAndGyro.az;
+
+    packet.gyr_x = accelAndGyro.gx;
+    packet.gyr_y = accelAndGyro.gy;
+    packet.gyr_z = accelAndGyro.gz;
+
+    packet.bmp_alt = pressure.altitude;
+    packet.bmp_temp = pressure.temperature;
+
+    packet.gps_alt = gps.altitude;
+    packet.gps_lat = gps.lat;
+    packet.gps_lng = gps.lng;
+
+    packet.time_ms = millis();
+
+    packet.seq_no = radio_counter;
+
+    radio_counter++;
+    Serial.print("Hello\n");
+
+    memcpy(buffer, &packet, sizeof(Packet));
+
+    LoRa.beginPacket();
+    LoRa.write(buffer, sizeof(Packet));
+    // LoRa.print("hello");
+    LoRa.endPacket();
+
+    delay(50);
+  }
 }
 
 void Display(void *pvParameters)
 {
 
-    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
-        Serial.println(F("SSD1306 allocation failed"));
-
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
+  {
+    Serial.println(F("SSD1306 allocation failed"));
+  }
+  display.clearDisplay();
+  display.drawBitmap(0, 0, bitmap, SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
+  display.display();
+  delay(1000);
+  PressureStuct latestPressureData;
+  AccelerationAndGyroStruct latestAccelGyroData;
+  GPSStruct latestGPSData;
+  while (1)
+  {
     display.clearDisplay();
-    display.drawBitmap(0, 0, bitmap, SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
+
+    // copy latest data to display
+
+    xQueueReceive(DisplayPressureQueue, &latestPressureData, portMAX_DELAY);
+    xQueueReceive(DisplayAccelQueue, &latestAccelGyroData, portMAX_DELAY);
+    xQueueReceive(DisplayGPSQueue, &latestGPSData, portMAX_DELAY);
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 0);
+    // display.printf("Altitude: %.4f", latestPressureData.altitude);
+    // GPS
+    display.printf("Lat: %.2f ", latestGPSData.lat);
+    display.printf("Lng: %.2f", latestGPSData.lng);
+    display.setCursor(0, 6);
+    display.printf("Pressure: %.1f", latestPressureData.pressure);
+    display.setCursor(0, 12);
+    display.printf("Temperature: %.1f", latestPressureData.temperature);
+    display.setCursor(0, 18);
+    display.printf("Accel: %.1f, %.1f, %.1f Gyro: %.1f, %.1f, %.1f", latestAccelGyroData.ax / 1000, latestAccelGyroData.ay / 1000, latestAccelGyroData.az / 1000, latestAccelGyroData.gx, latestAccelGyroData.gy, latestAccelGyroData.gz);
+
+    // display.println("Hello World!");
     display.display();
-    delay(1000);
-    PressureStuct latestPressureData;
-    AccelerationAndGyroStruct latestAccelGyroData;
-    GPSStruct latestGPSData;
-
-    while (1)
-    {
-        display.clearDisplay();
-
-        // copy latest data to display
-
-        xQueueReceive(DisplayPressureQueue, &latestPressureData, portMAX_DELAY);
-        xQueueReceive(DisplayAccelQueue, &latestAccelGyroData, portMAX_DELAY);
-        xQueueReceive(DisplayGPSQueue, &latestGPSData, portMAX_DELAY);
-        display.setTextSize(1);
-        display.setTextColor(WHITE);
-        display.setCursor(0, 0);
-        // display.printf("Altitude: %.4f", latestPressureData.altitude);
-        // GPS
-        display.printf("Lat: %.2f ", latestGPSData.lat);
-        display.printf("Lng: %.2f", latestGPSData.lng);
-        display.setCursor(0, 6);
-        display.printf("Pressure: %.1f", latestPressureData.pressure);
-        display.setCursor(0, 12);
-        display.printf("Temperature: %.1f", latestPressureData.temperature);
-        display.setCursor(0, 18);
-        display.printf("Accel: %.1f, %.1f, %.1f Gyro: %.1f, %.1f, %.1f", latestAccelGyroData.ax / 1000, latestAccelGyroData.ay / 1000, latestAccelGyroData.az / 1000, latestAccelGyroData.gx, latestAccelGyroData.gy, latestAccelGyroData.gz);
-
-        // display.println("Hello World!");
-        display.display();
-    }
+  }
 }
 
 void Pressure(void *pvParameters)
 {
-    if (bmp388.begin())
-        Serial.println("BMP388 is online");
-    else
-        Serial.println("BMP388 is not offline");
-
-    // Default initialisation, place the BMP388 into SLEEP_MODE
-    bmp388.setTimeStandby(TIME_STANDBY_160MS); // Set the standby time to 1280ms
-    bmp388.startNormalConversion();            // Start NORMAL conversion mode
-    float temperature, pressure, altitude;
-    uint8_t initial = bmp388.getMeasurements(temperature, pressure, altitude);
-
-    while (!initial)
-        initial = bmp388.getMeasurements(temperature, pressure, altitude);
-
-    bmp388.setSeaLevelPressure(pressure);
-
-    while (1)
+  if (bmp388.begin())
+  {
+    Serial.println("BMP388 is online");
+  }
+  else
+  {
+    Serial.println("BMP388 is not offline");
+  }
+  // Default initialisation, place the BMP388 into SLEEP_MODE
+  bmp388.setTimeStandby(TIME_STANDBY_160MS); // Set the standby time to 1280ms
+  bmp388.startNormalConversion();            // Start NORMAL conversion mode
+  float temperature, pressure, altitude;
+  uint8_t initial = bmp388.getMeasurements(temperature, pressure, altitude);
+  while (!initial)
+  {
+    initial = bmp388.getMeasurements(temperature, pressure, altitude);
+  }
+  bmp388.setSeaLevelPressure(pressure);
+  while (1)
+  {
+    if (bmp388.getMeasurements(temperature, pressure, altitude)) // Check if the measurement is complete
     {
-        if (bmp388.getMeasurements(temperature, pressure, altitude)) // Check if the measurement is complete
-        {
-            PressureStuct pressureStruct;
-            pressureStruct.pressure = pressure;
-            pressureStruct.temperature = temperature;
-            pressureStruct.altitude = altitude;
-            pressureStruct.time = millis();
-            xQueueSend(PressureQueue, &pressureStruct, 0);
-            xQueueSend(DisplayPressureQueue, &pressureStruct, 0);
-            xQueueSend(RadioPressureQueue, &pressureStruct, 0);
-        }
+      PressureStuct pressureStruct;
+      pressureStruct.pressure = pressure;
+      pressureStruct.temperature = temperature;
+      pressureStruct.altitude = altitude;
+      pressureStruct.time = millis();
+      xQueueSend(PressureQueue, &pressureStruct, 0);
+      xQueueSend(DisplayPressureQueue, &pressureStruct, 0);
+      xQueueSend(RadioPressureQueue, &pressureStruct, 0);
     }
+    delay(100);
+  }
 }
 
 void AccelAndGyro(void *pvParameters)
 {
-    delay(1000);
-
-    if (bmi088.isConnection())
-    {
-        bmi088.initialize();
-        Serial.println("BMI088 connected");
-    }
-    else
-    {
-        Serial.println("BMI088 not connected");
-
-        while (1)
-        {
-        }
-    }
-
+  delay(1000);
+  if (bmi088.isConnection())
+  {
+    bmi088.initialize();
+    Serial.println("BMI088 connected");
+  }
+  else
+  {
+    Serial.println("BMI088 not connected");
     while (1)
     {
-        float x, y, z = 0;
-        bmi088.getAcceleration(&x, &y, &z);
-        // printf("Acceleration: %f, %f, %f\n", x, y, z);
-        float xg, yg, zg = 0;
-        bmi088.getGyroscope(&xg, &yg, &zg);
-        // printf("Gyroscope: %f, %f, %f\n", xg, yg, zg);
-        AccelerationAndGyroStruct accelAndGyro;
-        accelAndGyro.ax = x;
-        accelAndGyro.ay = y;
-        accelAndGyro.az = z;
-        accelAndGyro.gx = xg;
-        accelAndGyro.gy = yg;
-        accelAndGyro.gz = zg;
-        accelAndGyro.time = millis();
-        xQueueSend(AccelQueue, &accelAndGyro, 0);
-        xQueueSend(DisplayAccelQueue, &accelAndGyro, 0);
-        xQueueSend(RadioAccelQueue, &accelAndGyro, 0);
-
-        delay(100);
     }
+  }
+  while (1)
+  {
+    float x, y, z = 0;
+    bmi088.getAcceleration(&x, &y, &z);
+    // printf("Acceleration: %f, %f, %f\n", x, y, z);
+    float xg, yg, zg = 0;
+    bmi088.getGyroscope(&xg, &yg, &zg);
+    // printf("Gyroscope: %f, %f, %f\n", xg, yg, zg);
+    AccelerationAndGyroStruct accelAndGyro;
+    accelAndGyro.ax = x;
+    accelAndGyro.ay = y;
+    accelAndGyro.az = z;
+    accelAndGyro.gx = xg;
+    accelAndGyro.gy = yg;
+    accelAndGyro.gz = zg;
+    accelAndGyro.time = millis();
+    xQueueSend(AccelQueue, &accelAndGyro, 0);
+    xQueueSend(DisplayAccelQueue, &accelAndGyro, 0);
+    xQueueSend(RadioAccelQueue, &accelAndGyro, 0);
+
+    delay(100);
+  }
 }
 
 void GPS(void *pvParameters)
 {
-    TinyGPSPlus gps;
+  TinyGPSPlus gps;
 
-    while (1)
+  while (1)
+  {
+    GPSStruct gpsStruct = {};
+    while (Serial.available() > 0)
     {
-        GPSStruct gpsStruct = {};
-
-        while (Serial.available() > 0)
-        {
-            char byte = Serial.read();
-            Serial.print(byte);
-            gps.encode(byte);
-        }
-
-        if (gps.location.isUpdated())
-        {
-            if (gps.location.isValid())
-            {
-                gpsStruct.lat = gps.location.lat();
-                gpsStruct.lng = gps.location.lng();
-            }
-
-            if (gps.date.isValid())
-                gpsStruct.date = gps.date.value();
-
-            if (gps.time.isValid())
-                gpsStruct.time = gps.time.value();
-
-            if (gps.altitude.isValid())
-                gpsStruct.altitude = gps.altitude.meters();
-
-            if (gps.speed.isValid())
-                gpsStruct.speed = gps.speed.mps();
-
-            if (gps.course.isValid())
-                gpsStruct.course = gps.course.deg();
-
-            gpsStruct.systemTime = millis();
-
-            xQueueSend(GPSQueue, &gpsStruct, 0);
-            xQueueSend(DisplayGPSQueue, &gpsStruct, 0);
-            xQueueSend(RadioGPSQueue, &gpsStruct, 0);
-        }
-
-        delay(100);
+      char byte = Serial.read();
+      Serial.print(byte);
+      gps.encode(byte);
     }
+    if (gps.location.isUpdated())
+    {
+      if (gps.location.isValid())
+      {
+        gpsStruct.lat = gps.location.lat();
+        gpsStruct.lng = gps.location.lng();
+      }
+      if (gps.date.isValid())
+      {
+        gpsStruct.date = gps.date.value();
+      }
+      if (gps.time.isValid())
+      {
+        gpsStruct.time = gps.time.value();
+      }
+      if (gps.altitude.isValid())
+      {
+        gpsStruct.altitude = gps.altitude.meters();
+      }
+      if (gps.speed.isValid())
+      {
+        gpsStruct.speed = gps.speed.mps();
+      }
+      if (gps.course.isValid())
+      {
+        gpsStruct.course = gps.course.deg();
+      }
+      gpsStruct.systemTime = millis();
+
+      xQueueSend(GPSQueue, &gpsStruct, 0);
+      xQueueSend(DisplayGPSQueue, &gpsStruct, 0);
+      xQueueSend(RadioGPSQueue, &gpsStruct, 0);
+    }
+    delay(100);
+  }
 }
 
 void setup()
 {
 
-    Serial.begin(9600);
+  Serial.begin(9600);
 
-    Wire.begin(21, 22);
+  Wire.begin(21, 22);
 
-    pinMode(19, INPUT_PULLUP);
-    spi.begin(18, 19, 23, SDCARDCS);
+  pinMode(19, INPUT_PULLUP);
+  spi.begin(18, 19, 23, SDCARDCS);
 
-    if (!SD.begin(SDCARDCS, spi))
-    {
-        Serial.println("initialization failed!");
-        return;
-    }
+  if (!SD.begin(SDCARDCS, spi))
+  {
+    Serial.println("initialization failed!\n");
+    return;
+  }
 
-    // Open files
-    xSemaphoreTake(SDWriteSemaphore, portMAX_DELAY);
-    pressureFile = SD.open("/pressure.txt", FILE_WRITE);
-    accelGyroFile = SD.open("/accelGyro.txt", FILE_WRITE);
-    gpsFile = SD.open("/gps.txt", FILE_WRITE);
-    xSemaphoreGive(SDWriteSemaphore);
+  // Open files
+  xSemaphoreTake(SDWriteSemaphore, portMAX_DELAY);
+  pressureFile = SD.open("/pressure.txt", FILE_WRITE);
+  accelGyroFile = SD.open("/accelGyro.txt", FILE_WRITE);
+  gpsFile = SD.open("/gps.txt", FILE_WRITE);
+  xSemaphoreGive(SDWriteSemaphore);
 
-    xTaskCreatePinnedToCore(AccelAndGyro, "Accel", 40000, NULL, 1, &AccelAndGyroTask, 0);
-    xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
-    xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
-    xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
-    // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
+  xTaskCreatePinnedToCore(AccelAndGyro, "Accel", 40000, NULL, 1, &AccelAndGyroTask, 0);
+  xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
+  xTaskCreatePinnedToCore(Radio, "radio", 20000, NULL, 1, &RadioTask, 1);
+  // xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
+  xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
+  // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
 }
 int counter = 0;
 void loop()
 {
 
-    if (uxQueueMessagesWaiting(AccelQueue) > 0)
-    {
-        AccelerationAndGyroStruct accelAndGyro;
+  if (uxQueueMessagesWaiting(AccelQueue) > 0)
+  {
+    AccelerationAndGyroStruct accelAndGyro;
 
-        xQueueReceive(AccelQueue, &accelAndGyro, portMAX_DELAY);
+    xQueueReceive(AccelQueue, &accelAndGyro, portMAX_DELAY);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%f,%lu\n", accelAndGyro.ax, accelAndGyro.ay, accelAndGyro.az, accelAndGyro.gx, accelAndGyro.gy, accelAndGyro.gz, accelAndGyro.time);
+    int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%f,%lu\n", accelAndGyro.ax, accelAndGyro.ay, accelAndGyro.az, accelAndGyro.gx, accelAndGyro.gy, accelAndGyro.gz, accelAndGyro.time);
 
-        char *buffer = (char *)malloc(returnSize + 1);
+    char *buffer = (char *)malloc(returnSize + 1);
 
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%f,%lu\n", accelAndGyro.ax, accelAndGyro.ay, accelAndGyro.az, accelAndGyro.gx, accelAndGyro.gy, accelAndGyro.gz, accelAndGyro.time);
+    snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%f,%lu\n", accelAndGyro.ax, accelAndGyro.ay, accelAndGyro.az, accelAndGyro.gx, accelAndGyro.gy, accelAndGyro.gz, accelAndGyro.time);
 
-        accelGyroFile.print(buffer);
-        counter++;
-        free(buffer);
-    }
+    accelGyroFile.print(buffer);
+    counter++;
+    free(buffer);
+  }
+  if (uxQueueMessagesWaiting(PressureQueue) > 0)
+  {
+    PressureStuct pressure;
 
-    if (uxQueueMessagesWaiting(PressureQueue) > 0)
-    {
-        PressureStuct pressure;
+    xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
 
-        xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
+    int returnSize = snprintf(NULL, 0, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
+    char *buffer = (char *)malloc(returnSize + 1);
 
-        char *buffer = (char *)malloc(returnSize + 1);
+    snprintf(buffer, returnSize + 1, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
 
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
+    pressureFile.print(buffer);
+    counter++;
+    free(buffer);
+  }
+  if (uxQueueMessagesWaiting(GPSQueue) > 0)
+  {
+    GPSStruct gps;
 
-        pressureFile.print(buffer);
-        counter++;
-        free(buffer);
-    }
+    xQueueReceive(GPSQueue, &gps, portMAX_DELAY);
 
-    if (uxQueueMessagesWaiting(GPSQueue) > 0)
-    {
-        GPSStruct gps;
+    int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
 
-        xQueueReceive(GPSQueue, &gps, portMAX_DELAY);
+    char *buffer = (char *)malloc(returnSize + 1);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
+    snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
 
-        char *buffer = (char *)malloc(returnSize + 1);
-
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
-
-        gpsFile.print(buffer);
-        counter++;
-        free(buffer);
-    }
-
-    if (counter > 100)
-    {
-        counter = 0;
-        accelGyroFile.flush();
-        pressureFile.flush();
-    }
+    gpsFile.print(buffer);
+    counter++;
+    free(buffer);
+  }
+  if (counter > 10)
+  {
+    counter = 0;
+    accelGyroFile.flush();
+    pressureFile.flush();
+  }
+  delay(1);
 }
