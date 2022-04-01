@@ -1,3 +1,5 @@
+#include <LoRa.h>
+
 #include <TinyGPS++.h>
 
 #include <SPI.h>
@@ -130,56 +132,50 @@ void Radio(void *pvParameters)
   hspi->begin();
 
   // ADDRESS
+  // NSS 26
+  // reset -1
+  // DI0 16
 
-  uint8_t address[][6] = {"1Node", "2Node"};
-
-  bool radioNumber = 1; // 0 uses address[0] to transmit, 1 uses address[1] to transmit
-
-  float payload = 0.0;
-  if (!radio.begin(hspi))
+  LoRa.setSPI(*hspi);
+  LoRa.setPins(26,-1,16);
+  while(!LoRa.begin(868E6))
   {
-    Serial.println(F("radio hardware not responding!!"));
-    while (1)
-    {
-    } // hold program in infinite loop to prevent subsequent errors
-  }
-  else
-  {
-    Serial.println(F("radio hardware OK"));
+    Serial.println(".");
+    delay(500);
   }
 
-  radio.setPALevel(RF24_PA_LOW);
-
-  // radio.setPayloadSize(sizeof(payload)); // float datatype occupies 4 bytes
-
-  // set the TX address of the RX node into the TX pipe
-  radio.openWritingPipe(address[radioNumber]); // always uses pipe 0
-
-  // set the RX address of the TX node into a RX pipe
-  radio.openReadingPipe(1, address[!radioNumber]); // using pipe 1
-
-  radio.stopListening(); // put radio in TX mode
+  LoRa.setSyncWord(0xD3);
+  LoRa.setSignalBandwidth(250E3);
+  LoRa.beginPacket();
+  LoRa.print("Hello ");
+  LoRa.print("Hello ");
+  LoRa.endPacket();
 
   while (1)
   {
-    unsigned long start_timer = micros();               // start the timer
-    bool report = radio.write(&payload, sizeof(float)); // transmit & save the report
-    unsigned long end_timer = micros();                 // end the timer
+    // unsigned long start_timer = micros();               // start the timer
+    // bool report = radio.write(&payload, sizeof(float)); // transmit & save the report
+    // unsigned long end_timer = micros();                 // end the timer
 
-    if (report)
-    {
-      Serial.print(F("Transmission successful! ")); // payload was delivered
-      Serial.print(F("Time to transmit = "));
-      Serial.print(end_timer - start_timer); // print the timer result
-      Serial.print(F(" us. Sent: "));
-      Serial.println(payload); // print payload sent
-      payload += 0.01;         // increment float payload
-    }
-    else
-    {
-      Serial.println(F("Transmission failed or timed out")); // payload was not delivered
-    }
+    // if (report)
+    // {
+    //   Serial.print(F("Transmission successful! ")); // payload was delivered
+    //   Serial.print(F("Time to transmit = "));
+    //   Serial.print(end_timer - start_timer); // print the timer result
+    //   Serial.print(F(" us. Sent: "));
+    //   Serial.println(payload); // print payload sent
+    //   payload += 0.01;         // increment float payload
+    // }
+    // else
+    // {
+    //   Serial.println(F("Transmission failed or timed out")); // payload was not delivered
+    // }
     delay(1000);
+    LoRa.beginPacket();
+  LoRa.print("Hello ");
+  LoRa.print("Hello ");
+  LoRa.endPacket();
+
   }
 }
 
