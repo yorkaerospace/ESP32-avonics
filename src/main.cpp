@@ -1,14 +1,15 @@
-#include <LoRa.h>
-
-#include <TinyGPS++.h>
 
 #include <SPI.h>
+// #include <GDBStub.h>
+
 
 #include <RF24.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <BMI088.h>
 #include <BMP388_DEV.h>
+#include <LoRa.h>
+#include <TinyGPS++.h>
 
 #include "IOSdcard.h"
 
@@ -407,7 +408,9 @@ void setup()
   xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
   // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
 }
+
 int counter = 0;
+
 void loop()
 {
 
@@ -449,11 +452,11 @@ void loop()
 
     xQueueReceive(GPSQueue, &gps, portMAX_DELAY);
 
-    int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
+    int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%u,%u,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
 
     char *buffer = (char *)malloc(returnSize + 1);
 
-    snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%lu,%lu,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
+    snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%u,%u,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
 
     gpsFile.print(buffer);
     counter++;
