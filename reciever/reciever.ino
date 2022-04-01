@@ -1,71 +1,68 @@
+#include <LoRa.h>
 #include <SPI.h>
-#include <RF24.h>
 
-RF24 radio(5, 25);
+#define ss 5
+#define rst 14
+#define dio0 2
+#define LED 12
 
+struct Packet {
+  uint32_t seq_no;
+  uint32_t time_ms;
+  double gps_lat, gps_lng, gps_alt;
+  float bmp_alt, bmp_temp;
+  float acc_x, acc_y, acc_z;
+  float gyr_x, gyr_y, gyr_z;
+};
 
+void setup() {
+  Serial.begin(115200);
+  while (!Serial)
+    ;
 
-// Let these addresses be used for the pair
-uint8_t address[][6] = {"1Node", "2Node"};
-// It is very helpful to think of an address as a path instead of as
-// an identifying device destination
+  Serial.println("LoRa Receiver Callback");
+  Serial.println(sizeof(Packet));
 
-// to use different addresses on a pair of radios, we need a variable to
-// uniquely identify which address this radio will use to transmit
-bool radioNumber = 0; // 0 uses address[0] to transmit, 1 uses address[1] to transmit
+  // setup LoRa transceiver module
+  LoRa.setPins(ss, rst, dio0);
 
-// Used to control whether this node is sending or receiving
-bool role = false;  // true = TX role, false = RX role
-
-// For this example, we'll be using a payload containing
-// a single float number that will be incremented
-// on every successful transmission
-float payload = 0.0;
-
-
-
-void setup(){
-    Serial.begin(115200);
-    if (!radio.begin()) {
-    Serial.println(F("radio hardware not responding!!"));
-    while (1) {} // hold program in infinite loop to prevent subsequent errors
-  }
-  else{
-    Serial.println(F("radio hardware is working!!"));
+  if (!LoRa.begin(868E6)) {
+    Serial.println("Starting LoRa failed!");
+    while (1)
+      ;
   }
 
-  // Set the PA Level low to try preventing power supply related problems
-  // because these examples are likely run with nodes in close proximity to
-  // each other.
-  radio.setPALevel(RF24_PA_LOW);  // RF24_PA_MAX is default.
+  // Uncomment the next line to disable the default AGC and set LNA gain, values
+  // between 1 - 6 are supported
+  LoRa.setGain(6);
+  // Sync word to avoid confusing other transceivers
+  LoRa.setSyncWord(0xD3);
+  // Set a relatively wide 250kHz bandwidth
+  LoRa.setSignalBandwidth(250E3);
 
-  // save on transmission time by setting the radio to only transmit the
-  // number of bytes we need to transmit a float
-  radio.setPayloadSize(sizeof(payload)); // float datatype occupies 4 bytes
+  Serial.println("LoRa Initializing OK!");
 
-  // set the TX address of the RX node into the TX pipe
-  radio.openWritingPipe(address[radioNumber]);     // always uses pipe 0
+  // register the receive callback
+  LoRa.onReceive(onReceive);
 
-  // set the RX address of the TX node into a RX pipe
-  radio.openReadingPipe(1, address[!radioNumber]); // using pipe 1
-
-  // additional setup specific to the node's role
-  if (role) {
-    radio.stopListening();  // put radio in TX mode
-  } else {
-    radio.startListening(); // put radio in RX mode
-  }
+  // put the radio into receive mode
+  LoRa.receive();
 }
-void loop(){
-   uint8_t pipe;
-    if (radio.available(&pipe)) {             // is there a payload? get the pipe number that recieved it
-      uint8_t bytes = radio.getPayloadSize(); // get the size of the payload
-      radio.read(&payload, bytes);            // fetch payload from FIFO
-      Serial.print(F("Received "));
-      Serial.print(bytes);                    // print the size of the payload
-      Serial.print(F(" bytes on pipe "));
-      Serial.print(pipe);                     // print the pipe number
-      Serial.print(F(": "));
-      Serial.println(payload);                // print the payload's value
-    }
+
+void loop() {
+  // do nothing
+}
+
+void onReceive(int packetSize) {
+  // received a packet
+  Serial.print("Received packet '");
+
+  // read packet
+  for (int i = 0; i < packetSize; i++) {
+    Serial.print((char)LoRa.read());
+  }
+
+  // print RSSI of packet
+  Serial.print("' with RSSI ");
+  Serial.println(LoRa.packetRssi());
 }
