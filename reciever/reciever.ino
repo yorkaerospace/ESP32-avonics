@@ -1,5 +1,6 @@
 #include <LoRa.h>
 #include <SPI.h>
+#include <sys/types.h>
 
 #define ss 5
 #define rst 14
@@ -14,6 +15,9 @@ struct Packet {
   float acc_x, acc_y, acc_z;
   float gyr_x, gyr_y, gyr_z;
 };
+
+unsigned char *recv = (unsigned char *)malloc(sizeof(Packet));
+Packet *data;
 
 void setup() {
   Serial.begin(115200);
@@ -59,8 +63,12 @@ void onReceive(int packetSize) {
 
   // read packet
   for (int i = 0; i < packetSize; i++) {
-    Serial.print((char)LoRa.read());
+    recv[i] = LoRa.read();
   }
+
+  data = (Packet *)recv;
+
+  Serial.print(data->seq_no);
 
   // print RSSI of packet
   Serial.print("' with RSSI ");
