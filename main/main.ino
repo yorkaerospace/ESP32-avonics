@@ -108,6 +108,15 @@ struct AccelerationAndGyroStruct
   unsigned long time;
 };
 
+struct Packet {
+  uint32_t seq_no;
+  uint32_t time_ms;
+  double gps_lat, gps_lng, gps_alt;
+  float bmp_alt, bmp_temp;
+  float acc_x, acc_y, acc_z;
+  float gyr_x, gyr_y, gyr_z;
+};
+
 QueueHandle_t AccelQueue = xQueueCreate(BUFFERSIZE, sizeof(AccelerationAndGyroStruct));
 QueueHandle_t PressureQueue = xQueueCreate(BUFFERSIZE, sizeof(PressureStuct));
 QueueHandle_t GPSQueue = xQueueCreate(BUFFERSIZE, sizeof(GPSStruct));
@@ -143,38 +152,63 @@ void Radio(void *pvParameters)
     Serial.println(".");
     delay(500);
   }
-
-  LoRa.setSyncWord(0xD3);
-  LoRa.setSignalBandwidth(250E3);
-  LoRa.beginPacket();
-  LoRa.print("Hello ");
-  LoRa.print("Hello ");
-  LoRa.endPacket();
-
+  PressureStuct pressure={};
+  AccelerationAndGyroStruct accelAndGyro={};
+  GPSStruct gps={};
+  Packet packet={};
+  int radio_counter=0;
+  uint8_t buffer[sizeof(Packet)]={};
   while (1)
   {
-    // unsigned long start_timer = micros();               // start the timer
-    // bool report = radio.write(&payload, sizeof(float)); // transmit & save the report
-    // unsigned long end_timer = micros();                 // end the timer
 
-    // if (report)
-    // {
-    //   Serial.print(F("Transmission successful! ")); // payload was delivered
-    //   Serial.print(F("Time to transmit = "));
-    //   Serial.print(end_timer - start_timer); // print the timer result
-    //   Serial.print(F(" us. Sent: "));
-    //   Serial.println(payload); // print payload sent
-    //   payload += 0.01;         // increment float payload
-    // }
-    // else
-    // {
-    //   Serial.println(F("Transmission failed or timed out")); // payload was not delivered
-    // }
-    delay(1000);
+
+    if (uxQueueMessagesWaiting(RadioPressureQueue) > 0)
+    {
+      xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
+    }
+    if (uxQueueMessagesWaiting(RadioAccelQueue)>0)
+    {
+      xQueueReceive(RadioAccelQueue,&accelAndGyro,portMAX_DELAY);
+    }
+    if (uxQueueMessagesWaiting(RadioGPSQueue)>0)
+    {
+      xQueueReceive(RadioGPSQueue,&gps,portMAX_DELAY);
+    }
+
+    packet.acc_x=accelAndGyro.ax;
+    packet.acc_y=accelAndGyro.ay;
+    packet.acc_z=accelAndGyro.az;
+
+    packet.gyr_x=accelAndGyro.gx;
+    packet.gyr_y=accelAndGyro.gy;
+    packet.gyr_z=accelAndGyro.gz;
+
+    packet.bmp_alt=pressure.altitude;
+    packet.bmp_temp=pressure.temperature;
+
+    packet.gps_alt=gps.altitude;
+    packet.gps_lat=gps.lat;
+    packet.gps_lng=gps.lng;
+
+    packet.time_ms=millis();
+
+    packet.seq_no=radio_counter;
+
+
+    radio_counter++;
+    Serial.print("Hello\n");
+
+    
+    memcpy(buffer,&packet,sizeof(Packet));
+
     LoRa.beginPacket();
-  LoRa.print("Hello ");
-  LoRa.print("Hello ");
-  LoRa.endPacket();
+    LoRa.write(buffer,sizeof(Packet));
+    // LoRa.print("hello");
+    LoRa.endPacket();
+
+    delay(50);
+  
+ 
 
   }
 }
@@ -372,6 +406,7 @@ void setup()
 
   xTaskCreatePinnedToCore(AccelAndGyro, "Accel", 40000, NULL, 1, &AccelAndGyroTask, 0);
   xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
+  xTaskCreatePinnedToCore(Radio,"radio",20000,NULL,1,&RadioTask,1);
   // xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
   xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
   // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
