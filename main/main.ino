@@ -1,5 +1,4 @@
 #include <TinyGPS++.h>
-#include <TinyGPSPlus.h>
 
 #include <SPI.h>
 #include <RF24.h>
@@ -235,7 +234,8 @@ void Pressure(void *pvParameters)
   else
   {
     Serial.println("BMP388 is not offline");
-  }                                          // Default initialisation, place the BMP388 into SLEEP_MODE
+  }                                   
+         // Default initialisation, place the BMP388 into SLEEP_MODE
   bmp388.setTimeStandby(TIME_STANDBY_160MS); // Set the standby time to 1280ms
   bmp388.startNormalConversion();            // Start NORMAL conversion mode
   float temperature, pressure, altitude;
@@ -258,6 +258,7 @@ void Pressure(void *pvParameters)
       xQueueSend(DisplayPressureQueue, &pressureStruct, 0);
       xQueueSend(RadioPressureQueue, &pressureStruct, 0);
     }
+    delay(100);
   }
 }
 
@@ -362,7 +363,7 @@ void setup()
 
   if (!SD.begin(SDCARDCS, spi))
   {
-    Serial.println("initialization failed!");
+    Serial.println("initialization failed!\n");
     return;
   }
 
@@ -375,7 +376,7 @@ void setup()
 
   xTaskCreatePinnedToCore(AccelAndGyro, "Accel", 40000, NULL, 1, &AccelAndGyroTask, 0);
   xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
-  xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
+  // xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
   xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
   // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
 }
@@ -431,10 +432,11 @@ void loop()
     counter++;
     free(buffer);
   }
-  if (counter > 100)
+  if (counter > 10)
   {
     counter = 0;
     accelGyroFile.flush();
     pressureFile.flush();
   }
+  delay(1);
 }
