@@ -199,17 +199,13 @@ void AccelGyro(void *pvParameters)
     {
         Serial.println("Reading accelerometer and gyro...");
 
-        float x, y, z = 0;
-        bmi088.getAcceleration(&x, &y, &z);
-        float xg, yg, zg = 0;
-        bmi088.getGyroscope(&xg, &yg, &zg);
-        accelGyro.ax = x;
-        accelGyro.ay = y;
-        accelGyro.az = z;
-        accelGyro.gx = xg;
-        accelGyro.gy = yg;
-        accelGyro.gz = zg;
+        bmi088.getAcceleration(accelGyro->x, accelGyro->y, accelGyro->z);
+        bmi088.getGyroscope(accelGyro->gx, accelGyro->gy, accelGyro->gz);
         accelGyro.time = millis();
+        // TODO: what happens if this loop runs again before these pointers are consumed?
+        // Aren't we mutating the data that those pointers are pointing at?
+        // Shouldn't we make a new copy of the data frame for every measurement? How can we make sure it lives long enough
+        // for the main loop to consume it (without causing mem leaks)?
         xQueueSend(AccelQueue, &accelGyro, 0);
         xQueueSend(RadioAccelQueue, &accelGyro, 0);
 
