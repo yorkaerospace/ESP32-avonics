@@ -107,7 +107,6 @@ void Pressure(void *pvParameters)
     {
         if(bmp388.getMeasurements(temperature, pressure, altitude))  // Check if the measurement is complete
         {
-            // PressureStuct pressureStruct;
             pressureStruct.pressure = pressure;
             pressureStruct.temperature = temperature;
             pressureStruct.altitude = altitude;
@@ -122,7 +121,6 @@ void Pressure(void *pvParameters)
 
 void AccelGyro(void *pvParameters)
 {
-    //   delay(1000);
     if(bmi088.isConnection())
     {
         bmi088.initialize();
@@ -139,13 +137,9 @@ void AccelGyro(void *pvParameters)
     while(1)
     {
         float x, y, z = 0;
-        // Serial.println("Getting accel data");
         bmi088.getAcceleration(&x, &y, &z);
-        // printf("Acceleration: %f, %f, %f\n", x, y, z);
         float xg, yg, zg = 0;
         bmi088.getGyroscope(&xg, &yg, &zg);
-        // printf("Gyroscope: %f, %f, %f\n", xg, yg, zg);
-        // AccelGyroStruct accelGyro;
         accelGyro.ax = x;
         accelGyro.ay = y;
         accelGyro.az = z;
@@ -174,6 +168,9 @@ void GPS(void *pvParameters)
             gps.encode(byte);
         }
 
+        // TODO: do we have to verify every loop?
+        // Could we just filter it out when we read the data off the radio
+        // or SD?
         if(gps.location.isUpdated())
         {
             if(gps.location.isValid())
@@ -208,11 +205,8 @@ void GPS(void *pvParameters)
 
 void setup()
 {
-
     Serial.begin(9600);
-
     Wire.begin(21, 22);
-
     pinMode(19, INPUT_PULLUP);
     spi.begin(18, 19, 23, SDCARDCS);
 
@@ -225,6 +219,7 @@ void setup()
     // Do threads need to be added if the components don't initialise?
 
     // Open files
+    // TODO: what's the point of this semaphore??
     xSemaphoreTake(SDWriteSemaphore, portMAX_DELAY);
     pressureFile = SD.open("/pressure.txt", FILE_WRITE);
     accelGyroFile = SD.open("/accelGyro.txt", FILE_WRITE);
@@ -236,63 +231,49 @@ void setup()
     xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
 }
 
+const int STRING_BUFFER_LENGTH = 100;
+const int CACHE_BEFORE_FLUSH = 30;
+
 int counter = 0;
 
 void loop()
 {
+    char *buffer = (char *)malloc(STRING_BUFFER_LENGTH * sizeof(char));
 
     if(uxQueueMessagesWaiting(AccelQueue) > 0)
     {
         AccelGyroStruct accelGyro;
-
         xQueueReceive(AccelQueue, &accelGyro, portMAX_DELAY);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%f,%lu\n", accelGyro.ax, accelGyro.ay, accelGyro.az, accelGyro.gx, accelGyro.gy, accelGyro.gz, accelGyro.time);
-
-        char *buffer = (char *)malloc(returnSize + 1);
-
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%f,%lu\n", accelGyro.ax, accelGyro.ay, accelGyro.az, accelGyro.gx, accelGyro.gy, accelGyro.gz, accelGyro.time);
+        snprintf(buffer, STRING_BUFFER_LENGTH, "%f,%f,%f,%f,%f,%f,%lu\n", accelGyro.ax, accelGyro.ay, accelGyro.az, accelGyro.gx, accelGyro.gy, accelGyro.gz, accelGyro.time);
 
         accelGyroFile.print(buffer);
         counter++;
-        free(buffer);
     }
 
     if(uxQueueMessagesWaiting(PressureQueue) > 0)
     {
         PressureStuct pressure;
-
         xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
-
-        char *buffer = (char *)malloc(returnSize + 1);
-
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
+        snprintf(buffer, STRING_BUFFER_LENGTH, "%f,%f,%f,%lu\n", pressure.pressure, pressure.temperature, pressure.altitude, pressure.time);
 
         pressureFile.print(buffer);
         counter++;
-        free(buffer);
     }
 
     if(uxQueueMessagesWaiting(GPSQueue) > 0)
     {
         GPSStruct gps;
-
         xQueueReceive(GPSQueue, &gps, portMAX_DELAY);
 
-        int returnSize = snprintf(NULL, 0, "%f,%f,%f,%f,%f,%u,%u,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
-
-        char *buffer = (char *)malloc(returnSize + 1);
-
-        snprintf(buffer, returnSize + 1, "%f,%f,%f,%f,%f,%u,%u,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
+        snprintf(buffer, STRING_BUFFER_LENGTH, "%f,%f,%f,%f,%f,%u,%u,%lu\n", gps.lat, gps.lng, gps.altitude, gps.speed, gps.course, gps.date, gps.time, gps.systemTime);
 
         gpsFile.print(buffer);
         counter++;
-        free(buffer);
     }
 
-    if(counter > 10)
+    if(counter > CACHE_BEFORE_FLUSH)
     {
         counter = 0;
         accelGyroFile.flush();
@@ -300,5 +281,6 @@ void loop()
         gpsFile.flush();
     }
 
+    free(buffer);
     delay(1);
 }
