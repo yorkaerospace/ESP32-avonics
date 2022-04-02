@@ -277,8 +277,6 @@ void setup()
         Serial.println("initialization failed!\n");
         return;
     }
-    // TODO:
-    // Do threads need to be added if the components don't initialise?
 
     // Open files
     // TODO: what's the point of this semaphore??
@@ -321,6 +319,9 @@ void loop()
     if(uxQueueMessagesWaiting(AccelQueue) > 0)
     {
         AccelGyroStruct accelGyro;
+        // TODO: are we only consuming one message in the queue at a time here?
+        // what if there are multiple messages and the main loop isn't called often enough to
+        // consume them one at once?
         xQueueReceive(AccelQueue, &accelGyro, portMAX_DELAY);
 
         snprintf(buffer, STRING_BUFFER_LENGTH, "%f,%f,%f,%f,%f,%f,%lu\n", accelGyro.ax, accelGyro.ay, accelGyro.az, accelGyro.gx, accelGyro.gy, accelGyro.gz, accelGyro.time);
