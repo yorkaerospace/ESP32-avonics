@@ -16,7 +16,6 @@ SPIClass spi = SPIClass(VSPI);
 // Handle tasks
 TaskHandle_t AccelGyroTask;
 TaskHandle_t PressureTask;
-TaskHandle_t FlusherTask;
 TaskHandle_t GPSTask;
 
 // Semaphores
@@ -28,7 +27,7 @@ File accelGyroFile;
 File gpsFile;
 
 // Buffer size for data
-#define BUFFERSIZE 5
+#define QUEUE_BUFFER_SIZE 5
 
 // Hold Pressure data
 struct PressureStuct
@@ -73,24 +72,16 @@ struct Packet
     float gyr_x, gyr_y, gyr_z;
 };
 
-QueueHandle_t AccelQueue = xQueueCreate(BUFFERSIZE, sizeof(AccelGyroStruct));
-QueueHandle_t PressureQueue = xQueueCreate(BUFFERSIZE, sizeof(PressureStuct));
-QueueHandle_t GPSQueue = xQueueCreate(BUFFERSIZE, sizeof(GPSStruct));
+QueueHandle_t AccelQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(AccelGyroStruct));
+QueueHandle_t PressureQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(PressureStuct));
+QueueHandle_t GPSQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(GPSStruct));
 
 // Devices
 BMP388_DEV bmp388;
 SPIClass *hspi;
-RF24 radio(26, 15);
 
 void Pressure(void *pvParameters)
 {
-    if(bmp388.begin())
-        Serial.println("BMP388 is online");
-    else {
-        Serial.println("BMP388 is not online, entering trap...");
-        while(1) {}
-    }
-
     // Default initialisation, place the BMP388 into SLEEP_MODE
     bmp388.setTimeStandby(TIME_STANDBY_160MS); // Set the standby time to 1280ms
     bmp388.startNormalConversion();            // Start NORMAL conversion mode
@@ -124,18 +115,7 @@ void Pressure(void *pvParameters)
 
 void AccelGyro(void *pvParameters)
 {
-    if(bmi088.isConnection())
-    {
-        bmi088.initialize();
-        Serial.println("BMI088 connected");
-    }
-    else
-    {
-        Serial.println("BMI088 not connected, entering trap...");
-        while (1)
-        {
-        }
-    }
+    bmi088.initialize();
     AccelGyroStruct accelGyro;
     while(1)
     {
@@ -232,8 +212,23 @@ void setup()
     gpsFile = SD.open("/gps.txt", FILE_WRITE);
     xSemaphoreGive(SDWriteSemaphore);
 
-    xTaskCreatePinnedToCore(AccelGyro, "Accel", 40000, NULL, 1, &AccelGyroTask, 0);
-    xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
+    if(bmi088.isConnection())
+    {
+        Serial.println("BMI088 connected");
+        xTaskCreatePinnedToCore(AccelGyro, "Accel", 40000, NULL, 1, &AccelGyroTask, 0);
+    }
+    else
+    {
+        Serial.println("BMI088 not connected, skipping...");
+    }
+
+    if(bmp388.begin()) {
+        Serial.println("BMP388 is online");
+        xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
+    } else {
+        Serial.println("BMP388 is not online, skipping...");
+    }
+
     xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
 }
 
