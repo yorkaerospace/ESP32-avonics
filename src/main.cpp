@@ -199,8 +199,8 @@ void AccelGyro(void *pvParameters)
     {
         Serial.println("Reading accelerometer and gyro...");
 
-        bmi088.getAcceleration(accelGyro->x, accelGyro->y, accelGyro->z);
-        bmi088.getGyroscope(accelGyro->gx, accelGyro->gy, accelGyro->gz);
+        bmi088.getAcceleration(&accelGyro.ax, &accelGyro.ay, &accelGyro.az);
+        bmi088.getGyroscope(&accelGyro.gx, &accelGyro.gy, &accelGyro.gz);
         accelGyro.time = millis();
         // TODO: what happens if this loop runs again before these pointers are consumed?
         // Aren't we mutating the data that those pointers are pointing at?
@@ -311,11 +311,10 @@ const int STRING_BUFFER_LENGTH = 100;
 const int CACHE_BEFORE_FLUSH = 30;
 
 int counter = 0;
+char buffer[STRING_BUFFER_LENGTH];
 
 void loop()
 {
-    char *buffer = (char *)malloc(STRING_BUFFER_LENGTH * sizeof(char));
-
     if(uxQueueMessagesWaiting(AccelQueue) > 0)
     {
         AccelGyroStruct accelGyro;
@@ -361,6 +360,5 @@ void loop()
         gpsFile.flush();
     }
 
-    free(buffer);
     delay(1);
 }
