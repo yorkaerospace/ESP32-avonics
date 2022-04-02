@@ -9,7 +9,6 @@
 #include <TinyGPS++.h>
 
 #include "IOSdcard.h"
-
 // PINS
 #define SDCARDCS 33
 
@@ -22,7 +21,6 @@ TaskHandle_t GPSTask;
 
 // Semaphores
 SemaphoreHandle_t SDWriteSemaphore = xSemaphoreCreateMutex();
-SemaphoreHandle_t I2CSemaphore = xSemaphoreCreateMutex();
 
 // Files
 File pressureFile;
@@ -88,13 +86,17 @@ void Pressure(void *pvParameters)
 {
     if(bmp388.begin())
         Serial.println("BMP388 is online");
-    else
-        Serial.println("BMP388 is not offline");
+    else {
+        Serial.println("BMP388 is not online, entering trap...");
+        while(1) {}
+    }
 
     // Default initialisation, place the BMP388 into SLEEP_MODE
     bmp388.setTimeStandby(TIME_STANDBY_160MS); // Set the standby time to 1280ms
     bmp388.startNormalConversion();            // Start NORMAL conversion mode
     float temperature, pressure, altitude;
+    // TODO: these variables are passed by value - shouldn't they be passed
+    // by reference for `bmp388.getMeasurements` to mutate them?
     uint8_t initial = bmp388.getMeasurements(temperature, pressure, altitude);
 
     while(!initial)
@@ -105,6 +107,7 @@ void Pressure(void *pvParameters)
     PressureStuct pressureStruct;
     while(1)
     {
+        Serial.println("Reading pressure data...");
         if(bmp388.getMeasurements(temperature, pressure, altitude))  // Check if the measurement is complete
         {
             pressureStruct.pressure = pressure;
@@ -128,7 +131,7 @@ void AccelGyro(void *pvParameters)
     }
     else
     {
-        Serial.println("BMI088 not connected");
+        Serial.println("BMI088 not connected, entering trap...");
         while (1)
         {
         }
@@ -136,6 +139,8 @@ void AccelGyro(void *pvParameters)
     AccelGyroStruct accelGyro;
     while(1)
     {
+        Serial.println("Reading accelerometer and gyro...");
+
         float x, y, z = 0;
         bmi088.getAcceleration(&x, &y, &z);
         float xg, yg, zg = 0;
@@ -156,17 +161,18 @@ void AccelGyro(void *pvParameters)
 void GPS(void *pvParameters)
 {
     TinyGPSPlus gps;
+    GPSStruct gpsStruct = {};
 
     while(1)
     {
-        GPSStruct gpsStruct = {};
-
         while(Serial.available() > 0)
         {
             char byte = Serial.read();
             Serial.print(byte);
             gps.encode(byte);
         }
+
+        Serial.println("Reading GPS frame...");
 
         // TODO: do we have to verify every loop?
         // Could we just filter it out when we read the data off the radio
