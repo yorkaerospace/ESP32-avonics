@@ -17,6 +17,7 @@ SPIClass spi = SPIClass(VSPI);
 TaskHandle_t AccelGyroTask;
 TaskHandle_t PressureTask;
 TaskHandle_t GPSTask;
+TaskHandle_t RadioTask;
 
 // Semaphores
 SemaphoreHandle_t SDWriteSemaphore = xSemaphoreCreateMutex();
@@ -76,9 +77,85 @@ QueueHandle_t AccelQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(AccelGyroStruc
 QueueHandle_t PressureQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(PressureStuct));
 QueueHandle_t GPSQueue = xQueueCreate(QUEUE_BUFFER_SIZE, sizeof(GPSStruct));
 
+QueueHandle_t RadioAccelQueue = xQueueCreate(1, sizeof(AccelGyroStruct));
+QueueHandle_t RadioPressureQueue = xQueueCreate(1, sizeof(PressureStuct));
+QueueHandle_t RadioGPSQueue = xQueueCreate(1, sizeof(GPSStruct));
+
 // Devices
 BMP388_DEV bmp388;
 SPIClass *hspi;
+
+void Radio(void *pvParameters)
+{
+    // HSPI is the hardware SPI port for the radio
+    hspi = new SPIClass(HSPI);
+    hspi->begin();
+
+    // ADDRESS
+    // NSS 26
+    // reset -1
+    // DI0 16
+
+    LoRa.setSPI(*hspi);
+    LoRa.setPins(26, -1, 16);
+
+    while(!LoRa.begin(868E6))
+    {
+        Serial.println(".");
+        delay(500);
+    }
+
+    PressureStuct pressure = {};
+    AccelGyroStruct accelGyro = {};
+    GPSStruct gps = {};
+    Packet packet = {};
+    int radio_counter = 0;
+    uint8_t buffer[sizeof(Packet)] = {};
+
+    while(1)
+    {
+
+        if(uxQueueMessagesWaiting(RadioPressureQueue) > 0)
+            xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
+
+        if(uxQueueMessagesWaiting(RadioAccelQueue) > 0)
+            xQueueReceive(RadioAccelQueue, &accelGyro, portMAX_DELAY);
+
+        if(uxQueueMessagesWaiting(RadioGPSQueue) > 0)
+            xQueueReceive(RadioGPSQueue, &gps, portMAX_DELAY);
+
+        packet.acc_x = accelGyro.ax;
+        packet.acc_y = accelGyro.ay;
+        packet.acc_z = accelGyro.az;
+
+        packet.gyr_x = accelGyro.gx;
+        packet.gyr_y = accelGyro.gy;
+        packet.gyr_z = accelGyro.gz;
+
+        packet.bmp_alt = pressure.altitude;
+        packet.bmp_temp = pressure.temperature;
+
+        packet.gps_alt = gps.altitude;
+        packet.gps_lat = gps.lat;
+        packet.gps_lng = gps.lng;
+
+        packet.time_ms = millis();
+
+        packet.seq_no = radio_counter;
+
+        radio_counter++;
+        Serial.print("Hello\n");
+
+        memcpy(buffer, &packet, sizeof(Packet));
+
+        LoRa.beginPacket();
+        LoRa.write(buffer, sizeof(Packet));
+        // LoRa.print("hello");
+        LoRa.endPacket();
+
+        delay(50);
+    }
+}
 
 void Pressure(void *pvParameters)
 {
@@ -106,6 +183,7 @@ void Pressure(void *pvParameters)
             pressureStruct.altitude = altitude;
             pressureStruct.time = millis();
             xQueueSend(PressureQueue, &pressureStruct, 0);
+            xQueueSend(RadioPressureQueue, &pressureStruct, 0);
             Serial.println();
         }
 
@@ -133,6 +211,7 @@ void AccelGyro(void *pvParameters)
         accelGyro.gz = zg;
         accelGyro.time = millis();
         xQueueSend(AccelQueue, &accelGyro, 0);
+        xQueueSend(RadioAccelQueue, &accelGyro, 0);
 
         delay(100);
     }
@@ -183,6 +262,7 @@ void GPS(void *pvParameters)
             gpsStruct.systemTime = millis();
 
             xQueueSend(GPSQueue, &gpsStruct, 0);
+            xQueueSend(RadioGPSQueue, &gpsStruct, 0);
         }
 
         delay(100);
@@ -229,6 +309,7 @@ void setup()
         Serial.println("BMP388 is not online, skipping...");
     }
 
+    xTaskCreatePinnedToCore(Radio, "radio", 20000, NULL, 1, &RadioTask, 1);
     xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
 }
 
@@ -276,6 +357,7 @@ void loop()
 
     if(counter > CACHE_BEFORE_FLUSH)
     {
+        Serial.println("Flushing file buffers...");
         counter = 0;
         accelGyroFile.flush();
         pressureFile.flush();
