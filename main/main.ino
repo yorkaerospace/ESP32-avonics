@@ -146,25 +146,32 @@ void Radio(void *pvParameters)
   // DI0 16
 
   LoRa.setSPI(*hspi);
+
   LoRa.setPins(26,-1,16);
+  
   while(!LoRa.begin(868E6))
   {
     Serial.println(".");
     delay(500);
   }
+  
   PressureStuct pressure={};
   AccelerationAndGyroStruct accelAndGyro={};
   GPSStruct gps={};
+  
   Packet packet={};
+  
   int radio_counter=0;
+  
   uint8_t buffer[sizeof(Packet)]={};
+  
   while (1)
   {
 
 
     if (uxQueueMessagesWaiting(RadioPressureQueue) > 0)
     {
-      xQueueReceive(PressureQueue, &pressure, portMAX_DELAY);
+      xQueueReceive(RadioPressureQueue, &pressure, portMAX_DELAY);
     }
     if (uxQueueMessagesWaiting(RadioAccelQueue)>0)
     {
@@ -203,7 +210,6 @@ void Radio(void *pvParameters)
 
     LoRa.beginPacket();
     LoRa.write(buffer,sizeof(Packet));
-    // LoRa.print("hello");
     LoRa.endPacket();
 
     delay(50);
@@ -305,6 +311,7 @@ void AccelAndGyro(void *pvParameters)
     Serial.println("BMI088 not connected");
     while (1)
     {
+      delay(50);
     }
   }
   while (1)
@@ -406,7 +413,7 @@ void setup()
 
   xTaskCreatePinnedToCore(AccelAndGyro, "Accel", 40000, NULL, 1, &AccelAndGyroTask, 0);
   xTaskCreatePinnedToCore(Pressure, "pressure", 20000, NULL, 1, &PressureTask, 0);
-  xTaskCreatePinnedToCore(Radio,"radio",20000,NULL,1,&RadioTask,1);
+  // xTaskCreatePinnedToCore(Radio,"radio",20000,NULL,1,&RadioTask,1);
   // xTaskCreatePinnedToCore(Display, "Display", 20000, NULL, 3, &DisplayTask, 0);
   xTaskCreatePinnedToCore(GPS, "GPS", 20000, NULL, 1, &GPSTask, 1);
   // xTaskCreatePinnedToCore(Flusher, "Flusher", 20000, &files, 1, &FlusherTask, 0);
